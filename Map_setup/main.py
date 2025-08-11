@@ -591,62 +591,6 @@ class MainWindow(QMainWindow):
             
             
         except:
-%matplotlib notebook
-
-# plot absorption spectrum:
-def lorentzian(E, center, fwhm):
-    return 1 / (1 + ((E - center) / fwhm / 2) ** 2)
-
-E_vals = np.linspace(0.1, 6, 1000)
-spect_lin = np.zeros(len(E_vals))
-spect_nl = np.zeros(len(E_vals))
-
-
-
-for i in evals_nl[idx]:
-    spect_nl += lorentzian(E_vals, i, 0.01)
-for i in evals_lin[idx]:
-    spect_lin += lorentzian(E_vals, i, 0.01)
-
-plt.figure(figsize=(3,4), dpi=200)
-plt.plot(E_vals, spect_lin, c="g")
-plt.plot(E_vals, spect_nl, c="b")
-plt.legend(["linear", "nonlinear"], frameon=False, loc="lower right")
-plt.show()
-
-
-plt.figure()
-plt.plot(E_vals, spect_lin - spect_nl, c="g")
-plt.show()
-
-%matplotlib notebook
-
-# plot absorption spectrum:
-def lorentzian(E, center, fwhm):
-    return 1 / (1 + ((E - center) / fwhm / 2) ** 2)
-
-E_vals = np.linspace(0.1, 6, 1000)
-spect_lin = np.zeros(len(E_vals))
-spect_nl = np.zeros(len(E_vals))
-
-
-
-for i in evals_nl[idx]:
-    spect_nl += lorentzian(E_vals, i, 0.01)
-for i in evals_lin[idx]:
-    spect_lin += lorentzian(E_vals, i, 0.01)
-
-plt.figure(figsize=(3,4), dpi=200)
-plt.plot(E_vals, spect_lin, c="g")
-plt.plot(E_vals, spect_nl, c="b")
-plt.legend(["linear", "nonlinear"], frameon=False, loc="lower right")
-plt.show()
-
-
-plt.figure()
-plt.plot(E_vals, spect_lin - spect_nl, c="g")
-plt.show()
-
             print('Absorption map could not be created')
 
 
