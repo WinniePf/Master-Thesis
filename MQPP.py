@@ -6,9 +6,54 @@ import os
 from scipy.special import sici
 #import tracemalloc
 
-plt.rcParams.update({
-    "text.usetex": False,
-})
+
+#################
+# Parameters for MQPP model
+#################
+
+# where to save the structure function files
+path = "/home/winniep01/Documents/thesis/mqpp_python"
+lattice = 'FCC' # lattice: FCC and SC so far implemented, others can be added easily
+
+
+# path in the selected lattice, 'G' for gamma point 
+kpath = ['K', 'G', 'X', 'W', 'L', 'G'] # full fcc path
+#kpath = ['M', 'G', 'X', 'M', 'R', 'G']
+#kpath = ["G", "L"]
+#kpath = ["G", "L"]
+
+cutoff_radius_dipole = 60       # cutoff radius for dipole lattice 
+cutoff_radius_quadrupole = 7    # cutoff radius for dipole-quadrupole and quadrupole-quadrupole coupling terms
+
+quadrupoles = False             # flag to turn on/off quadrupoles
+photon_interaction = False      # flag to turn on/off photon interactions
+recalculate = False             # flag to force recalculation
+
+
+n_kpoints = 30                  # number of points between 2 high symmetry points
+a_latt = 60e-9                  # Lattice constant
+nBZ = 2                         # number of brillouin zones
+eps_m = 1
+eps_d = 1
+f = 0.60 #(280/330)**3 * 0.74   # fill factor (not relative but total)
+omega_p = 4 * e / hbar          # plasma frequency of the metal
+plot = 1                        # 0 for dispersion, 1 for decomp
+ymax = 3.25 #omega_p * 1.2 / e * hbar # maximum y value to plot
+ymin = 1.65
+
+# dipole and quadrupole plasmon resonances in the quasistatic approx.
+omega_D = omega_p / np.sqrt(eps_d + 2 * eps_m)
+omega_Q = omega_p / np.sqrt(eps_d + 3 / 2 * eps_m)
+
+# you can set the dipole and quadrupole plasmon resonances here
+#omega_D = 1.75 * e / hbar
+#omega_Q = 1.95 * e / hbar
+
+
+#################
+# MQPP model
+#################
+
 
 def generate_lattice(a, cutoff_radius, basis, min_excl=False):
     # Convert the basis to a numpy array
@@ -48,8 +93,6 @@ def f_q(q, rho_dipole, rho_quadrupole, basis, filename, nu):
     
     q_pol = get_polarization_vectors(q).astype(data_type)
 
-    ###
-    startD = time.time()
     
     # Precompute rho-related terms 0.004s
     rho_norm_D = np.linalg.norm(rho_dipole, axis=1)
@@ -80,10 +123,7 @@ def f_q(q, rho_dipole, rho_quadrupole, basis, filename, nu):
     cos_q_rho_D = np.exp(1j * phase, dtype=data_type_c)  # Shape: (j, q)
 
     res_dipole = np.einsum('qj,jqlk->qlk', np.multiply(rho_a_3_D, cos_q_rho_D.T, dtype=data_type_c) / 2, res_dipole, optimize=True, dtype=data_type_c)
-    
-    endD = time.time()
-    
-    print("time dipoles: ", endD - startD)
+        
     
     if quadrupoles:
         # quadrupole term
@@ -155,10 +195,6 @@ def f_q(q, rho_dipole, rho_quadrupole, basis, filename, nu):
     else:
         res = res_dipole
         
-    # save fq file:
-    abspath = os.path.abspath(os.getcwd()) + '/'
-    with open(abspath + filename, 'wb') as f:
-        np.save(f, res)
 
     return res
 
@@ -181,11 +217,13 @@ def check_if_file_exists(lattice, kpath, cutoff_radius_dipole, cutoff_radius_qua
         print("Forced recalculation!")
         return False    
     else:
+        print("Looked for file:")
+        print(path + os.sep + filename)
         print("Structure factor not found, recalculating")
         return False    
 
 
-def run_f_q_for_multiple_q(q_list, rho_dipole, rho_quadrupole, cutoff_radius_dipole, cutoff_radius_quadrupole, lattice, basis, alpha, kpath, qpoints, file_exists, path, nu):
+def run_f_q_for_multiple_q(q_list, rho_dipole, rho_quadrupole, cutoff_radius_dipole, cutoff_radius_quadrupole, lattice, basis, alpha, kpath, qpoints, file_exists, path, nu, memory_split):
     if quadrupoles:
         quad_string = 'qp'
     else:
@@ -197,7 +235,26 @@ def run_f_q_for_multiple_q(q_list, rho_dipole, rho_quadrupole, cutoff_radius_dip
         with open(path + os.sep + filename, 'rb') as f:
             results = np.load(f)
     else:
-        results = f_q(q_list, rho_dipole, rho_quadrupole, basis, filename, nu)
+        if quadrupoles:
+            results = np.empty((len(q_list), 8, 8), dtype="complex64")    
+        else:
+            results = np.empty((len(q_list), 3, 3), dtype="complex64")
+        
+        q_list_split = np.array_split(q_list, memory_split)
+        idx = 0
+        for i in range(memory_split):
+            print(f"Processing chunk {i+1} / {len(q_list_split)}")
+            results[idx:idx+len(q_list_split[i])] = f_q(q_list_split[i], rho_dipole, rho_quadrupole, basis, filename, nu)
+            idx += len(q_list_split[i])
+            
+        # save fq file:
+        if not path:
+            fpath = os.path.abspath(os.getcwd())
+        else:
+            fpath = path
+        with open(fpath + os.sep + filename, 'wb') as f:
+            np.save(f, results)
+
     
     q_pol = get_polarization_vectors(q_list)
     
@@ -353,9 +410,9 @@ def plot_Dispersion(eigvals, eigvects, n_kpoints, kpath, omega_D, title, ymax, y
     plt.grid(axis='x')
     
     if photon_interaction:
-        plt.ylabel('$\omega_{pp,q}$ (eV)')
+        plt.ylabel('$\omega_{pp,k}$ (eV)')
     else:
-        plt.ylabel('$\omega_{pl,q}$ (eV)')
+        plt.ylabel('$\omega_{pl,k}$ (eV)')
         
     plt.ylim([ymin,ymax])
     plt.xlim([min(xticks),max(xticks)])
@@ -415,9 +472,9 @@ def plot_Decomp(eigvals, eigvects, n_kpoints, kpath, omega_D, title, ymax, ymin)
     xticks = np.concatenate(([0], [(i+1)*n_kpoints-1 for i in range(len(kpath)-1)]))
     
     if photon_interaction:
-        ax[0].set_ylabel('$\omega_{pp,q}$ (eV)')
+        ax[0].set_ylabel('$\omega_{pp,k}$ (eV)')
     else:
-        ax[0].set_ylabel('$\omega_{pl,q}$ (eV)')
+        ax[0].set_ylabel('$\omega_{pl,k}$ (eV)')
 
     
     for i in range(len(ax)):
@@ -642,6 +699,7 @@ def dispersion(f_q, eps_m, eps_d, omega_p, omega_D, omega_Q, f, nu, nBZ, photon_
 
 
 def MQPP_main(lattice, kpath, n_kpoints, cutoff_radius_dipole, cutoff_radius_quadrupole, eps_m, eps_d, omega_p, omega_D, omega_Q, f, title, path, a_latt, nBZ, plot=0, ymax=10, ymin=0, min_excl=False):
+    memory_split = 50 # split array to save memory. On mashines with a lot of memory set to 1
     # determine cutoff distance to Gamma point
     alpha = 2*cutoff_radius_dipole/3 / np.sqrt(2) / 2    
     # check if structure function exists
@@ -652,7 +710,7 @@ def MQPP_main(lattice, kpath, n_kpoints, cutoff_radius_dipole, cutoff_radius_qua
     k_line, G = k_path(kpath, lattice, n_kpoints, basis, nu)
     
     if file_exists:
-        f_q = run_f_q_for_multiple_q(k_line, None, None, cutoff_radius_dipole, cutoff_radius_quadrupole, lattice, basis, alpha, kpath, n_kpoints, file_exists, path, nu)
+        f_q = run_f_q_for_multiple_q(k_line, None, None, cutoff_radius_dipole, cutoff_radius_quadrupole, lattice, basis, alpha, kpath, n_kpoints, file_exists, path, nu, memory_split=None)
     else:
         # create lattice positions up to a cutoff radius
         next_neighbors_dipole = generate_lattice(1, cutoff_radius_dipole, basis)
@@ -660,7 +718,7 @@ def MQPP_main(lattice, kpath, n_kpoints, cutoff_radius_dipole, cutoff_radius_qua
             next_neighbors_quadrupole = generate_lattice(1, cutoff_radius_quadrupole, basis)
         else:
             next_neighbors_quadrupole = None
-        f_q = run_f_q_for_multiple_q(k_line, next_neighbors_dipole, next_neighbors_quadrupole, cutoff_radius_dipole, cutoff_radius_quadrupole, lattice, basis, alpha, kpath, n_kpoints, file_exists, path, nu)
+        f_q = run_f_q_for_multiple_q(k_line, next_neighbors_dipole, next_neighbors_quadrupole, cutoff_radius_dipole, cutoff_radius_quadrupole, lattice, basis, alpha, kpath, n_kpoints, file_exists, path, nu, memory_split)
 
     #constants
     f = f * (rmax)**3
@@ -674,43 +732,6 @@ def MQPP_main(lattice, kpath, n_kpoints, cutoff_radius_dipole, cutoff_radius_qua
         plot_Decomp(eigvals, eigvects, n_kpoints, kpath, omega_D, title, ymax, ymin)
 
     return eigvals
-
-
-# where to save the structure function files
-path = "/home/winniep01/Documents/thesis/mqpp_python"
-lattice = 'FCC' # lattice: FCC and SC so far implemented, others can be added easily
-
-
-# path in the selected lattice, 'G' for gamma point 
-kpath = ['K', 'G', 'X', 'W', 'L', 'G'] # full fcc path
-#kpath = ['M', 'G', 'X', 'M', 'R', 'G']
-#kpath = ["G", "L"]
-#kpath = ["G", "L"]
-
-quadrupoles = False             # flag to turn on/off quadrupoles
-photon_interaction = False      # flag to turn on/off photon interactions
-recalculate = False             # flag to force recalculation
-
-n_kpoints = 10                  # number of points between 2 high symmetry points
-a_latt = 60e-9                  # Lattice constant
-cutoff_radius_dipole = 60       #     
-cutoff_radius_quadrupole = 7    # 
-nBZ = 2                         # number of brillouin zones
-eps_m = 1
-eps_d = 1
-f = 0.60 #(280/330)**3 * 0.74   # fill factor (not relative but total)
-omega_p = 4 * e / hbar          # plasma frequency of the metal
-plot = 0                        # 0 for dispersion, 1 for decomp
-ymax = 8 #omega_p * 1.2 / e * hbar # maximum y value to plot
-ymin = 0
-
-# dipole and quadrupole plasmon resonances in the quasistatic approx.
-omega_D = omega_p / np.sqrt(eps_d + 2 * eps_m)
-omega_Q = omega_p / np.sqrt(eps_d + 3 / 2 * eps_m)
-
-# you can set the dipole and quadrupole plasmon resonances here
-#omega_D = 1.75 * e / hbar
-#omega_Q = 1.95 * e / hbar
 
 
 # call the main function. If you want to further process the MQPP Bands, simply pass the return value to a variable
