@@ -1,11 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import time
-from scipy.constants import hbar, e, c #, eV
+from scipy.constants import hbar, e, c
 import os
 from scipy.special import sici
-#import tracemalloc
-
+import sys
 
 #################
 # Parameters for MQPP model
@@ -18,27 +16,23 @@ lattice = 'FCC' # lattice: FCC and SC so far implemented, others can be added ea
 
 # path in the selected lattice, 'G' for gamma point 
 kpath = ['K', 'G', 'X', 'W', 'L', 'G'] # full fcc path
-#kpath = ['M', 'G', 'X', 'M', 'R', 'G']
-#kpath = ["G", "L"]
-#kpath = ["G", "L"]
 
 cutoff_radius_dipole = 60       # cutoff radius for dipole lattice 
 cutoff_radius_quadrupole = 7    # cutoff radius for dipole-quadrupole and quadrupole-quadrupole coupling terms
 
-quadrupoles = False             # flag to turn on/off quadrupoles
-photon_interaction = False      # flag to turn on/off photon interactions
+quadrupoles = True              # flag to turn on/off quadrupoles
+photon_interaction = True       # flag to turn on/off photon interactions
 recalculate = False             # flag to force recalculation
-
 
 n_kpoints = 30                  # number of points between 2 high symmetry points
 a_latt = 60e-9                  # Lattice constant
 nBZ = 2                         # number of brillouin zones
 eps_m = 1
 eps_d = 1
-f = 0.60 #(280/330)**3 * 0.74   # fill factor (not relative but total)
+f = 0.60                        # fill factor (not relative but total)
 omega_p = 4 * e / hbar          # plasma frequency of the metal
-plot = 1                        # 0 for dispersion, 1 for decomp
-ymax = 3.25 #omega_p * 1.2 / e * hbar # maximum y value to plot
+plot = 1                        # 0 for dispersion, 1 for decomp 
+ymax = 3.25                     # maximum y value to plot (eV)
 ymin = 1.65
 
 # dipole and quadrupole plasmon resonances in the quasistatic approx.
@@ -126,9 +120,6 @@ def f_q(q, rho_dipole, rho_quadrupole, basis, filename, nu):
         
     
     if quadrupoles:
-        # quadrupole term
-        startQ = time.time()
-        
         
         rho_norm_Q = np.linalg.norm(rho_quadrupole, axis=1)
         rho_unit_Q = rho_quadrupole / rho_norm_Q[:, np.newaxis]
@@ -185,11 +176,8 @@ def f_q(q, rho_dipole, rho_quadrupole, basis, filename, nu):
         
         # multiplying the terms with the exponential equation (22) 4)
         res_quad_offcenter = np.einsum('qrij,rq->qji', res_quad_offcenter, cos_q_rho_Q)
-        
-        endQ = time.time()
-        print("results quad time", endQ-startQ)
-    
-        # create matrix for structure function and save
+            
+        # create matrix for structure function
         res = np.block([[res_dipole, res_quad_offcenter], [np.conj(np.transpose(res_quad_offcenter, axes=(0,2,1))), res_quad]])
     
     else:
@@ -252,9 +240,12 @@ def run_f_q_for_multiple_q(q_list, rho_dipole, rho_quadrupole, cutoff_radius_dip
             fpath = os.path.abspath(os.getcwd())
         else:
             fpath = path
-        with open(fpath + os.sep + filename, 'wb') as f:
-            np.save(f, results)
-
+        
+        try:
+            with open(fpath + os.sep + filename, 'wb') as f:
+                np.save(f, results)
+        except FileNotFoundError:
+            print(f'Could not save structure function to path {fpath}')
     
     q_pol = get_polarization_vectors(q_list)
     
@@ -287,6 +278,7 @@ def select_basis(lattice):
         nu = np.linalg.det(basis)    
     else:
         print('Lattice not implemented')
+        sys.exit()
     
     return basis, nu, rmax
 
@@ -329,6 +321,7 @@ def k_path(kpath, lattice, n_kpoints, basis, nu):
             k_line.append(U)
         else:
             print('High symmetry point not set')
+            sys.exit()
 
     # Linear interpolation between high-symmetry points
     def interpolate_kpath(start, end, num_points):
@@ -410,9 +403,9 @@ def plot_Dispersion(eigvals, eigvects, n_kpoints, kpath, omega_D, title, ymax, y
     plt.grid(axis='x')
     
     if photon_interaction:
-        plt.ylabel('$\omega_{pp,k}$ (eV)')
+        plt.ylabel(r'$\omega_{pp,k}$ (eV)')
     else:
-        plt.ylabel('$\omega_{pl,k}$ (eV)')
+        plt.ylabel(r'$\omega_{pl,k}$ (eV)')
         
     plt.ylim([ymin,ymax])
     plt.xlim([min(xticks),max(xticks)])
@@ -472,9 +465,9 @@ def plot_Decomp(eigvals, eigvects, n_kpoints, kpath, omega_D, title, ymax, ymin)
     xticks = np.concatenate(([0], [(i+1)*n_kpoints-1 for i in range(len(kpath)-1)]))
     
     if photon_interaction:
-        ax[0].set_ylabel('$\omega_{pp,k}$ (eV)')
+        ax[0].set_ylabel(r'$\omega_{pp,k}$ (eV)')
     else:
-        ax[0].set_ylabel('$\omega_{pl,k}$ (eV)')
+        ax[0].set_ylabel(r'$\omega_{pl,k}$ (eV)')
 
     
     for i in range(len(ax)):
@@ -538,7 +531,6 @@ def dispersion(f_q, eps_m, eps_d, omega_p, omega_D, omega_Q, f, nu, nBZ, photon_
         # manipulate matrix first:
         coupling_terms = np.concatenate((np.array([Lambda_D]*3), np.array([Lambda_Q]*5)))
         coupling_matrix = np.sqrt(np.outer(coupling_terms, coupling_terms))
-        #print(np.shape(coupling_matrix))
         f_q = coupling_matrix * f_q
 
     else:
@@ -595,7 +587,7 @@ def dispersion(f_q, eps_m, eps_d, omega_p, omega_D, omega_Q, f, nu, nBZ, photon_
         w0 *= a_latt/c
         
         wpt = qGnorm / (w0) / np.sqrt(eps_m)
-        # wpt is correct        
+
         PqQ = np.zeros((len(q), 8, 2*ng), dtype="complex64")
         
         q_pol_0 = get_polarization_vectors(q)
@@ -632,8 +624,6 @@ def dispersion(f_q, eps_m, eps_d, omega_p, omega_D, omega_Q, f, nu, nBZ, photon_
 
             z1 = -1j/2*Rb*np.linalg.norm(qa,axis=-1)*( chi_eq1.T + chi_eq3.T )
             z2 = -1j/2*Rb*np.linalg.norm(qa,axis=-1)*( chi_eq2.T + chi_eq4.T )
-
-            # z's are correct
 
             PQ = np.transpose(np.array([z1,z2]),axes=(2,1,0))
             
@@ -682,8 +672,11 @@ def dispersion(f_q, eps_m, eps_d, omega_p, omega_D, omega_Q, f, nu, nBZ, photon_
         A_plpl = np.repeat(np.diag(matter_excitations)[np.newaxis,:,:], len(f_q[:,0,0]), 0) + 2 * f_q
         
         G_M = f_q + np.transpose(f_q, axes=(0, 2, 1))
+        
         G_pt = Xi + np.transpose(Xi, axes=(0,2,1))
+        
         A = np.block([[A_plpl, fplpt],[fplpt.swapaxes(2,1).conj(), A_ptpt]])
+        
         G_M = np.block([[G_M,fplpt],[fplpt.swapaxes(2,1), G_pt]])
         
         D = np.block([[A, G_M], [-G_M.swapaxes(2, 1).conj(), -np.transpose(A, axes=(0,2,1))]])
@@ -691,10 +684,12 @@ def dispersion(f_q, eps_m, eps_d, omega_p, omega_D, omega_Q, f, nu, nBZ, photon_
         A = np.repeat(np.diag(matter_excitations)[np.newaxis,:,:], len(f_q[:,0,0]), 0) + 2 * f_q
 
         G_M = f_q + np.transpose(f_q, axes=(0, 2, 1))
+        
         D = np.block([[A, G_M], [-G_M.swapaxes(2, 1).conj(), -np.transpose(A, axes=(0,2,1))]])
     
 
     eigvals, eigenvects = np.linalg.eig(D) #np.linalg.eig(D)
+    
     return eigvals, eigenvects
 
 
